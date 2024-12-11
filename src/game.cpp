@@ -69,6 +69,17 @@ string toStr(CommandId id)
     }
 }
 
+class GameInfo
+{
+public:
+    string title;
+    vector<int> in;
+    list<int> expected_out;
+    vector<CommandId> available_command;
+    int n_playground;
+    GameInfo() : title(""), in({}), expected_out({}), available_command({}), n_playground(0) {}
+};
+
 class Command
 {
 public:
@@ -531,7 +542,7 @@ class Game
         }
 
         out_boxes.push_front(box_taken);
-        current_out.push_front(box_taken.data);
+        current_out.push_back(box_taken.data);
         box_taken.empty();
 
         if (animate)
@@ -692,6 +703,7 @@ public:
     bool logAvailableCommand;
     Result prevResult;
     int step_used;
+    string title;
 
     Box box_taken;
     int robot_column;
@@ -755,7 +767,6 @@ public:
 
             if (error)
             {
-                delay(step_delay);
                 break;
             }
             if (done)
@@ -797,9 +808,9 @@ public:
         }
     }
 
-    Game(vector<int> &in, vector<CommandId> &available_command, int n_playground_boxes, list<int> &expected_out)
+    Game(string title, vector<int> &in, vector<CommandId> &available_command, int n_playground_boxes, list<int> &expected_out)
     {
-
+        this->title = title;
         for (int i : in)
         {
             in_boxes.push_back(i);
@@ -821,15 +832,20 @@ public:
         ifstream file(file_path);
         if (!file.is_open())
         {
-            cout << "Cannot open file " << file_path << endl;
             return false;
         }
 
         string line;
         int n_command;
-
-        getline(file, line);
-        n_command = stoi(line);
+        try
+        {
+            getline(file, line);
+            n_command = stoi(line);
+        }
+        catch (...)
+        {
+            return false;
+        }
         codes.clear();
         while (n_command--)
         {
@@ -902,11 +918,27 @@ public:
         }
         cout << "\033[H";
         screen.print();
+        // print ori in
+        cout << "Ori In: ";
+        for (Box &box : ori_in)
+        {
+            cout << box.data << " ";
+        }
+        cout << endl;
+        // print target output
+        cout << "Expected Out: ";
+        for (int i : expected_out)
+        {
+            cout << i << " ";
+        }
+        cout << endl;
+        cout << endl;
     }
 };
 
-void playGame(Game &game)
+void playGame(string title, vector<int> &in, vector<CommandId> &available_command, int n_playground, list<int> &expected_out)
 {
+    Game game(title, in, available_command, n_playground, expected_out);
     game.updateScreen();
 
     while (true)
@@ -919,7 +951,7 @@ void playGame(Game &game)
             game.runCode();
         else if (line.compare("exit") == 0)
             break;
-        else if (line.compare("addCode") == 0)
+        else if (line.compare("add") == 0)
         {
             game.logAvailableCommand = true;
             while (true)
@@ -977,14 +1009,47 @@ void playGame(Game &game)
     }
 }
 
+void playGame(GameInfo &info)
+{
+    return playGame(info.title, info.in, info.available_command, info.n_playground, info.expected_out);
+}
+
+GameInfo gameInfo1;
+GameInfo gameInfo2;
+GameInfo gameInfo3;
+GameInfo gameInfo4;
+
+void initGameInfo()
+{
+    gameInfo1.title = "Level 1";
+    gameInfo1.in = {1, 2};
+    gameInfo1.expected_out = {1, 2};
+    gameInfo1.available_command = {CommandId::inbox, CommandId::outbox};
+    gameInfo1.n_playground = 0;
+
+    gameInfo2.title = "Level 2";
+    gameInfo2.in = {3, 9, 5, 1, -2, -2, 9, -9};
+    gameInfo2.expected_out = {-6, 6, 4, -4, 0, 0, 18, -18};
+    gameInfo2.n_playground = 3;
+    gameInfo2.available_command = {CommandId::inbox, CommandId::outbox, CommandId::add, CommandId::sub, CommandId::copyto, CommandId::copyfrom, CommandId::jump, CommandId::jumpifzero};
+
+    gameInfo3.title = "Level 3";
+    gameInfo3.in = {6, 2, 7, 7, -9, 3, -3, -3};
+    gameInfo3.expected_out = {7, -3};
+    gameInfo3.n_playground = 3;
+    gameInfo3.available_command = {CommandId::inbox, CommandId::outbox, CommandId::add, CommandId::sub, CommandId::copyto, CommandId::copyfrom, CommandId::jump, CommandId::jumpifzero};
+
+    gameInfo4.title = "Level 4";
+    gameInfo4.in = {1};
+    gameInfo4.expected_out = {1, 1, 2, 3, 5, 8};
+}
+
 int main()
 {
-    vector<int> in = {1, 2, 3, 4};
-    list<int> expected_out = {4, 3, 2, 1};
-    vector<CommandId> available_command = {CommandId::inbox, CommandId::outbox, CommandId::add, CommandId::sub, CommandId::copyto, CommandId::copyfrom, CommandId::jump, CommandId::jumpifzero};
+    initGameInfo();
     hideCursor();
-    Game game(in, available_command, 4, expected_out);
-    playGame(game);
+
+    playGame(gameInfo3);
     system("pause");
     return 0;
 }
