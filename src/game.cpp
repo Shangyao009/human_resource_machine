@@ -1041,7 +1041,9 @@ void initGameInfo()
 
     gameInfo4.title = "Level 4";
     gameInfo4.in = {1};
-    gameInfo4.expected_out = {1, 1, 2, 3, 5, 8};
+    gameInfo4.expected_out = {1, 1, 2, 3};
+    gameInfo4.n_playground = 4;
+    gameInfo4.available_command = {CommandId::inbox, CommandId::outbox, CommandId::add, CommandId::sub, CommandId::copyto, CommandId::copyfrom, CommandId::jump, CommandId::jumpifzero};
 }
 
 int main()
@@ -1049,7 +1051,7 @@ int main()
     initGameInfo();
     hideCursor();
 
-    playGame(gameInfo3);
+    playGame(gameInfo4);
     system("pause");
     return 0;
 }

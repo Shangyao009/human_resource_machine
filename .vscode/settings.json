@@ -45,6 +45,7 @@
         "xutility": "cpp",
         "list": "cpp",
         "string": "cpp",
-        "thread": "cpp"
+        "thread": "cpp",
+        "algorithm": "cpp"
     }
 }
