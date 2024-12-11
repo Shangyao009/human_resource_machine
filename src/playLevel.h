@@ -1,0 +1,1 @@
+extern const int EMPTY_MARKER;

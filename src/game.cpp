@@ -6,6 +6,7 @@
 #include <thread>
 #include <algorithm>
 #include <windows.h>
+#include <fstream>
 
 using namespace std;
 
@@ -18,28 +19,29 @@ enum class CommandId
     copyto,
     copyfrom,
     jump,
-    jumpifzero
+    jumpifzero,
+    invalid,
 };
 
 CommandId parseStr(string &s)
 {
-    if (s == "inbox")
+    if (s.compare("inbox") == 0)
         return CommandId::inbox;
-    if (s == "outbox")
+    if (s.compare("outbox") == 0)
         return CommandId::outbox;
-    if (s == "add")
+    if (s.compare("add") == 0)
         return CommandId::add;
-    if (s == "sub")
+    if (s.compare("sub") == 0)
         return CommandId::sub;
-    if (s == "copyto")
+    if (s.compare("copyto") == 0)
         return CommandId::copyto;
-    if (s == "copyfrom")
+    if (s.compare("copyfrom") == 0)
         return CommandId::copyfrom;
-    if (s == "jump")
+    if (s.compare("jump") == 0)
         return CommandId::jump;
-    if (s == "jumpifzero")
+    if (s.compare("jumpifzero") == 0)
         return CommandId::jumpifzero;
-    return CommandId::inbox;
+    return CommandId::invalid;
 }
 
 string toStr(CommandId id)
@@ -269,8 +271,9 @@ class GameScreen
         l = min(l, i + MAX_LINE);
         for (; i < l; i++)
         {
-            string command = toStr(code[i].id) + " " + to_string(code[i].arg);
-
+            string command = toStr(code[i].id);
+            if (!code[i].no_args)
+                command += " " + to_string(code[i].arg);
             // print line number
             string line = to_string(i + 1);
             if (line.length() >= 2)
@@ -305,7 +308,7 @@ public:
         }
     }
 
-    void draw(list<Box> &in, list<Box> &out, vector<Box> &playground, vector<Command> &code, int robot_column, Box &box_taken)
+    void draw(list<Box> &in, list<Box> &out, vector<Box> &playground, vector<Command> &code, int current_line, int robot_column, Box &box_taken)
     {
         // draw In Boxes
         drawBoxesVertical(BOX_WIDTH + 1, in, 6);
@@ -314,6 +317,9 @@ public:
 
         drawPlaygroundBoxes(3.5f * BOX_HEIGHT, 3 * (BOX_WIDTH + 1), playground, playground.size());
         drawRobot(BOX_HEIGHT, robot_column * (BOX_WIDTH + 1), box_taken);
+
+        drawSeperateLine();
+        drawCodeBlock(code, current_line, 10);
     }
 
     void print()
@@ -336,6 +342,37 @@ public:
     }
 };
 
+void delay(int ms)
+{
+    Sleep(ms);
+}
+
+void hideCursor()
+{
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_CURSOR_INFO cursorInfo;
+    GetConsoleCursorInfo(hConsole, &cursorInfo);
+    cursorInfo.bVisible = FALSE; // Set visibility to false
+    SetConsoleCursorInfo(hConsole, &cursorInfo);
+}
+
+void showCursor()
+{
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_CURSOR_INFO cursorInfo;
+    GetConsoleCursorInfo(hConsole, &cursorInfo);
+    cursorInfo.bVisible = TRUE; // Set visibility to true
+    SetConsoleCursorInfo(hConsole, &cursorInfo);
+}
+
+void cleanLineAbove()
+{
+    // Move up one line
+    cout << "\033[A";
+    // Clear the line
+    cout << "\033[K";
+}
+
 class Game
 {
     void robot_move_left()
@@ -346,11 +383,6 @@ class Game
     void robot_move_right()
     {
         robot_column += 1;
-    }
-
-    void delay(int ms)
-    {
-        Sleep(ms);
     }
 
     void goToPlayGround(int x)
@@ -582,7 +614,7 @@ public:
     Box box_taken;
     int robot_column;
 
-    void runCode()
+    bool runCode()
     {
         current_line = 1;
         bool error = false, done = false;
@@ -620,7 +652,7 @@ public:
                     continue;
             }
             current_line++;
-            if (current_line >= codes.size())
+            if (current_line > codes.size())
                 done = true;
 
             if (error)
@@ -630,8 +662,8 @@ public:
         }
         if (error)
         {
-            // TODO display status after done
-            return;
+            cout << "❌❌❌ Error Occur!";
+            return false;
         }
         bool answer_correct = true;
         if (current_out.size() != expected_out.size())
@@ -653,11 +685,13 @@ public:
         }
         if (answer_correct)
         {
-            // TODO display status after done
+            cout << "🌟🌟🌟 Mission Accomplished!";
+            return true;
         }
         else
         {
-            // TODO display status after done
+            cout << "❌❌❌ Mission Failed!";
+            return false;
         }
     }
 
@@ -673,12 +707,46 @@ public:
         step_delay = 500;
     }
 
-    bool addCode(string command)
+    void importCode(string file_path)
     {
-        CommandId commandId = parseStr(command);
+        ifstream file(file_path);
+        if (!file.is_open())
+        {
+            cout << "Cannot open file " << file_path << endl;
+            return;
+        }
+
+        string line;
+        int n_command;
+
+        getline(file, line);
+        n_command = stoi(line);
+
+        while (n_command--)
+        {
+            getline(file, line);
+            char temp[100];
+            int arg = 0;
+            int result = sscanf(line.c_str(), "%s %d", temp, &arg);
+            if (result == 1)
+            {
+                addCode(temp);
+            }
+            else
+            {
+                addCode(temp, arg);
+            }
+        }
+    }
+
+    bool addCode(string _command)
+    {
+        CommandId commandId = parseStr(_command);
+        if (commandId == CommandId::invalid)
+            return false;
         if (find(available_command.begin(), available_command.end(), commandId) != available_command.end())
         {
-            codes.push_back(Command(command));
+            codes.push_back(Command(_command));
             return true;
         }
         return false;
@@ -695,31 +763,90 @@ public:
         return false;
     }
 
+    bool removeCode()
+    {
+        if (codes.size() == 0)
+            return false;
+        codes.pop_back();
+        return true;
+    }
+
     void updateScreen()
     {
         screen.clear();
-        screen.draw(in_boxes, out_boxes, playground_boxes, codes, robot_column, box_taken);
+        screen.draw(in_boxes, out_boxes, playground_boxes, codes, current_line, robot_column, box_taken);
+        // system("cls");
+        for (int i = 0; i < 5; i++)
+        {
+            cleanLineAbove();
+        }
+        cout << "\033[H";
         screen.print();
     }
 };
 
+#include <iostream>
+#include <string>
+
 int main()
 {
+    std::wcout << L"🌟❌🎉 Unicode characters in Windows Terminal!" << std::endl;
+    system("pause");
+    return 0;
+}
 
+/*
+
+int main()
+{
     vector<int> in = {1, 2, 3, 4};
-    list<int> expected_out = {1, 2, 3, 4};
+    list<int> expected_out = {4, 3, 2, 1};
     vector<CommandId> available_command = {CommandId::inbox, CommandId::outbox};
     Game game(in, available_command, 4, expected_out);
-    game.addCode("inbox");
-    game.addCode("outbox");
-    game.addCode("inbox");
-    game.addCode("outbox");
-    game.addCode("inbox");
-    game.addCode("outbox");
-    game.addCode("inbox");
-    game.addCode("outbox");
+    hideCursor();
     game.updateScreen();
+    game.importCode("code.txt");
+    // cout << "Enter the command:\n> ";
+    // while (true)
+    // {
+    //     string line;
+    //     getline(cin, line);
+    //     int arg = 0;
+    //     char temp[100];
+    //     int result = sscanf(line.c_str(), "%s %d", temp, &arg);
+
+    //     string command(temp);
+    //     bool success = false;
+    //     if (result == 1)
+    //     {
+    //         if (command.compare("run") == 0)
+    //         {
+    //             game.updateScreen();
+    //             break;
+    //         }
+    //         else if (command.compare("delete") == 0)
+    //         {
+    //             success = game.removeCode();
+    //         }
+    //         else
+    //             success = game.addCode(command);
+    //     }
+    //     else
+    //     {
+    //         success = game.addCode(command, arg);
+    //     }
+    //     game.updateScreen();
+    //     if (!success)
+    //     {
+    //         cout << "Invalid Command!  \n>";
+    //         delay(800);
+    //         game.updateScreen();
+    //     }
+    //     cout << "Enter the command:\n> ";
+    // }
     game.runCode();
-    game.updateScreen();
+    // game.updateScreen();
     system("pause");
 }
+
+ */
