@@ -10,10 +10,10 @@
 
 using namespace std;
 
-enum class CommandId
+enum class CommandId : int
 {
-    inbox,
-    outbox,
+    inbox = 0,
+    outbox = 1,
     add,
     sub,
     copyto,
@@ -118,13 +118,21 @@ public:
     }
 };
 
+enum class Result
+{
+    idle,
+    success,
+    failed,
+    error
+};
+
 class GameScreen
 {
     const int SCREEN_LEN = 100;
     const int SCREEN_HEIGHT = 20;
     const int BOX_HEIGHT = 3;
     const int BOX_WIDTH = 5;
-    const int SPLIT_SCREEN_COLUMN = SCREEN_LEN * 7 / 10;
+    const int SPLIT_SCREEN_COLUMN = 63;
     vector<string> screen;
 
     // if invalid will draw 'X' within the box
@@ -202,7 +210,7 @@ class GameScreen
                 drawBox(sr, c, data);
 
             // draw index of playground boxes
-            screen[sr + BOX_HEIGHT][c + (BOX_WIDTH - 1) / 2] = to_string(i)[0];
+            screen[sr + BOX_HEIGHT][c + (BOX_WIDTH - 1) / 2] = to_string(i + 1)[0];
 
             if (i >= n_box)
                 break;
@@ -211,7 +219,7 @@ class GameScreen
         {
             int c = sc + i * (BOX_WIDTH + 1);
             drawBox(sr, c, 0, true);
-            screen[sr + BOX_HEIGHT][c + (BOX_WIDTH - 1) / 2] = to_string(i)[0];
+            screen[sr + BOX_HEIGHT][c + (BOX_WIDTH - 1) / 2] = to_string(i + 1)[0];
         }
     }
 
@@ -294,6 +302,76 @@ class GameScreen
     }
 
 public:
+    void drawResultBlock(Result status, int step_used = 0)
+    {
+        int _r = 10;
+        for (int i = 0; i < 5; i++)
+        {
+            screen[_r][SPLIT_SCREEN_COLUMN + 2 + i] = '=';
+        }
+        screen[_r][SPLIT_SCREEN_COLUMN + 8] = 'S';
+        screen[_r][SPLIT_SCREEN_COLUMN + 9] = 'T';
+        screen[_r][SPLIT_SCREEN_COLUMN + 10] = 'A';
+        screen[_r][SPLIT_SCREEN_COLUMN + 11] = 'T';
+        screen[_r][SPLIT_SCREEN_COLUMN + 12] = 'U';
+        screen[_r][SPLIT_SCREEN_COLUMN + 13] = 'S';
+
+        for (int i = 1; i < 5; i++)
+        {
+            screen[_r][SPLIT_SCREEN_COLUMN + 14 + i] = '=';
+        }
+
+        string text = "> idle";
+        if (status == Result::error)
+            text = "> Error while Running!";
+        else if (status == Result::success)
+            text = "> Mission Accomplished!";
+        else if (status == Result::failed)
+            text = "> Mission Failed!";
+        int _c = SPLIT_SCREEN_COLUMN + 4;
+        _r += 1;
+        for (int i = 0; i < text.length(); i++)
+            screen[_r][_c + i] = text[i];
+
+        if (step_used <= 0)
+            return;
+        text = "> Steps Used: " + to_string(step_used);
+        _r += 1;
+        for (int i = 0; i < text.length(); i++)
+            screen[_r][_c + i] = text[i];
+    }
+
+    void drawAvailableCommand(vector<CommandId> &available_command)
+    {
+        int _r = 10;
+        for (int i = 0; i < 5; i++)
+        {
+            screen[_r][SPLIT_SCREEN_COLUMN + 2 + i] = '=';
+        }
+        screen[_r][SPLIT_SCREEN_COLUMN + 8] = 'V';
+        screen[_r][SPLIT_SCREEN_COLUMN + 9] = 'A';
+        screen[_r][SPLIT_SCREEN_COLUMN + 10] = 'L';
+        screen[_r][SPLIT_SCREEN_COLUMN + 11] = 'I';
+        screen[_r][SPLIT_SCREEN_COLUMN + 12] = 'D';
+
+        for (int i = 1; i < 5; i++)
+        {
+            screen[_r][SPLIT_SCREEN_COLUMN + 13 + i] = '=';
+        }
+
+        for (int i = 0; i < available_command.size(); i++)
+        {
+            string command = toStr(available_command[i]);
+            if (available_command[i] >= CommandId::add)
+                command += " x";
+            int _c = SPLIT_SCREEN_COLUMN + 4;
+            _r += 1;
+            screen[_r][_c] = to_string(i + 1)[0];
+            for (int j = 0; j < command.length(); j++)
+                screen[_r][_c + 2 + j] = command[j];
+        }
+    }
+
     GameScreen()
     {
         screen.resize(SCREEN_HEIGHT);
@@ -319,7 +397,7 @@ public:
         drawRobot(BOX_HEIGHT, robot_column * (BOX_WIDTH + 1), box_taken);
 
         drawSeperateLine();
-        drawCodeBlock(code, current_line, 10);
+        drawCodeBlock(code, current_line, 8);
     }
 
     void print()
@@ -601,6 +679,7 @@ class Game
 
 public:
     list<Box> in_boxes;
+    list<Box> ori_in;
     list<Box> out_boxes;
     vector<Box> playground_boxes;
     vector<Command> codes;
@@ -610,16 +689,35 @@ public:
     list<int> current_out;
     int current_line;
     int step_delay; // ms
+    bool logAvailableCommand;
+    Result prevResult;
+    int step_used;
 
     Box box_taken;
     int robot_column;
 
     bool runCode()
     {
+        step_used = 0;
+        prevResult = Result::idle;
+        logAvailableCommand = false;
         current_line = 1;
+        out_boxes.clear();
+        current_out.clear();
+        for (Box &box : playground_boxes)
+            box.empty();
+        box_taken.empty();
+        in_boxes = ori_in;
+
         bool error = false, done = false;
+        if (codes.size() == 0)
+        {
+            prevResult = Result::error;
+            return false;
+        }
         while (true)
         {
+            step_used++;
             Command _command = codes[current_line - 1];
             switch (_command.id)
             {
@@ -656,13 +754,17 @@ public:
                 done = true;
 
             if (error)
+            {
+                delay(step_delay);
                 break;
+            }
             if (done)
                 break;
         }
+        current_line = -1;
         if (error)
         {
-            cout << "❌❌❌ Error Occur!";
+            prevResult = Result::error;
             return false;
         }
         bool answer_correct = true;
@@ -685,35 +787,42 @@ public:
         }
         if (answer_correct)
         {
-            cout << "🌟🌟🌟 Mission Accomplished!";
+            prevResult = Result::success;
             return true;
         }
         else
         {
-            cout << "❌❌❌ Mission Failed!";
+            prevResult = Result::failed;
             return false;
         }
     }
 
     Game(vector<int> &in, vector<CommandId> &available_command, int n_playground_boxes, list<int> &expected_out)
     {
+
         for (int i : in)
+        {
             in_boxes.push_back(i);
+            ori_in.push_back(i);
+        }
         playground_boxes.resize(n_playground_boxes);
         this->expected_out = expected_out;
         this->available_command = available_command;
         robot_column = 3;
         current_line = -1;
         step_delay = 500;
+        logAvailableCommand = true;
+        prevResult = Result::idle;
+        step_used = 0;
     }
 
-    void importCode(string file_path)
+    bool importCode(string file_path)
     {
         ifstream file(file_path);
         if (!file.is_open())
         {
             cout << "Cannot open file " << file_path << endl;
-            return;
+            return false;
         }
 
         string line;
@@ -721,7 +830,7 @@ public:
 
         getline(file, line);
         n_command = stoi(line);
-
+        codes.clear();
         while (n_command--)
         {
             getline(file, line);
@@ -737,12 +846,15 @@ public:
                 addCode(temp, arg);
             }
         }
+        return true;
     }
 
     bool addCode(string _command)
     {
         CommandId commandId = parseStr(_command);
         if (commandId == CommandId::invalid)
+            return false;
+        if (commandId >= CommandId::add)
             return false;
         if (find(available_command.begin(), available_command.end(), commandId) != available_command.end())
         {
@@ -755,6 +867,10 @@ public:
     bool addCode(string command, int arg)
     {
         CommandId commandId = parseStr(command);
+        if (commandId == CommandId::invalid)
+            return false;
+        if (commandId < CommandId::add)
+            return false;
         if (find(available_command.begin(), available_command.end(), commandId) != available_command.end())
         {
             codes.push_back(Command(command, arg));
@@ -775,6 +891,10 @@ public:
     {
         screen.clear();
         screen.draw(in_boxes, out_boxes, playground_boxes, codes, current_line, robot_column, box_taken);
+        if (logAvailableCommand)
+            screen.drawAvailableCommand(available_command);
+        else
+            screen.drawResultBlock(prevResult, step_used);
         // system("cls");
         for (int i = 0; i < 5; i++)
         {
@@ -785,68 +905,86 @@ public:
     }
 };
 
-#include <iostream>
-#include <string>
-
-int main()
+void playGame(Game &game)
 {
-    std::wcout << L"🌟❌🎉 Unicode characters in Windows Terminal!" << std::endl;
-    system("pause");
-    return 0;
-}
+    game.updateScreen();
 
-/*
+    while (true)
+    {
+        game.updateScreen();
+        string line;
+        cout << "Enter the command: ( run / exit / addCode / import ) \n> ";
+        getline(cin, line);
+        if (line.compare("run") == 0)
+            game.runCode();
+        else if (line.compare("exit") == 0)
+            break;
+        else if (line.compare("addCode") == 0)
+        {
+            game.logAvailableCommand = true;
+            while (true)
+            {
+                game.updateScreen();
+                cout << "Add Code Mode: (input \'q\' if done, \'d\' for delete, \'c\' for clear)\n> ";
+                char temp[100];
+                int arg = 0;
+                getline(cin, line);
+                if (line.compare("q") == 0)
+                {
+                    game.logAvailableCommand = false;
+                    break;
+                }
+                if (line.compare("d") == 0)
+                {
+                    game.removeCode();
+                    continue;
+                }
+                if (line.compare("c") == 0)
+                {
+                    game.codes.clear();
+                    continue;
+                }
+                int result = sscanf(line.c_str(), "%s %d", temp, &arg);
+                bool success;
+                if (result == 1)
+                    success = game.addCode(temp);
+                else
+                    success = game.addCode(temp, arg);
+                if (!success)
+                {
+                    cout << "Invalid Command!\n";
+                    delay(800);
+                }
+            }
+        }
+        else if (line.compare("import") == 0)
+        {
+            game.updateScreen();
+            cout << "Enter the file path: (q to quit)\n> ";
+            string file_path;
+            getline(cin, file_path);
+            if (file_path.compare("q") == 0)
+            {
+                continue;
+            }
+            bool success = game.importCode(file_path);
+            if (!success)
+            {
+                cout << "Cannot import code from file " << file_path << endl;
+                delay(800);
+            }
+        }
+    }
+}
 
 int main()
 {
     vector<int> in = {1, 2, 3, 4};
     list<int> expected_out = {4, 3, 2, 1};
-    vector<CommandId> available_command = {CommandId::inbox, CommandId::outbox};
-    Game game(in, available_command, 4, expected_out);
+    vector<CommandId> available_command = {CommandId::inbox, CommandId::outbox, CommandId::add, CommandId::sub, CommandId::copyto, CommandId::copyfrom, CommandId::jump, CommandId::jumpifzero};
     hideCursor();
-    game.updateScreen();
-    game.importCode("code.txt");
-    // cout << "Enter the command:\n> ";
-    // while (true)
-    // {
-    //     string line;
-    //     getline(cin, line);
-    //     int arg = 0;
-    //     char temp[100];
-    //     int result = sscanf(line.c_str(), "%s %d", temp, &arg);
-
-    //     string command(temp);
-    //     bool success = false;
-    //     if (result == 1)
-    //     {
-    //         if (command.compare("run") == 0)
-    //         {
-    //             game.updateScreen();
-    //             break;
-    //         }
-    //         else if (command.compare("delete") == 0)
-    //         {
-    //             success = game.removeCode();
-    //         }
-    //         else
-    //             success = game.addCode(command);
-    //     }
-    //     else
-    //     {
-    //         success = game.addCode(command, arg);
-    //     }
-    //     game.updateScreen();
-    //     if (!success)
-    //     {
-    //         cout << "Invalid Command!  \n>";
-    //         delay(800);
-    //         game.updateScreen();
-    //     }
-    //     cout << "Enter the command:\n> ";
-    // }
-    game.runCode();
-    // game.updateScreen();
+    Game game(in, available_command, 4, expected_out);
+    playGame(game);
     system("pause");
+    return 0;
 }
-
- */
