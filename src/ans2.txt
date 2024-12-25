@@ -1,12 +1,12 @@
 11
 inbox
-copyto 1
+copyto 0
 inbox
-copyto 2
-copyfrom 1
-sub 2
-outbox
-copyfrom 2
+copyto 1
+copyfrom 0
 sub 1
+outbox
+copyfrom 1
+sub 0
 outbox
 jump 1

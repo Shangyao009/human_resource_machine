@@ -2,65 +2,12 @@
 #include <vector>
 #include <list>
 #include <string>
+#include <chrono>
+#include <thread>
 #include <algorithm>
 #include <fstream>
 
 using namespace std;
-void initGameInfo();
-void hideCursor();
-void testing();
-void playGame();
-void loadFromDb();
-
-// 若测试代码逻辑正确性，请定义ojTest
-// #define ojTest
-
-const int STEP_DELAY = 500;     // 游戏动画单步延迟时长（ms）
-const string dbPath = "db.txt"; // 数据库文件地址
-
-int main()
-{
-    initGameInfo();
-
-#ifdef ojTest
-    testing();
-#else
-    loadFromDb();
-    hideCursor();
-    playGame();
-#endif
-    return 0;
-}
-
-#ifdef ojTest
-void delay(int ms) {}
-void hideCursor() {}
-void clearTerminal() {}
-#else
-// 在window中如下实现
-// 在其他OS下或许需要更改实现
-#include <windows.h>
-void delay(int ms)
-{
-    Sleep(ms);
-}
-
-// 非必要，为了美观性
-void hideCursor()
-{
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    CONSOLE_CURSOR_INFO cursorInfo;
-    GetConsoleCursorInfo(hConsole, &cursorInfo);
-    cursorInfo.bVisible = FALSE; // Set visibility to false
-    SetConsoleCursorInfo(hConsole, &cursorInfo);
-}
-
-void clearTerminal()
-{
-    system("cls");
-}
-
-#endif
 
 enum class CommandId : int
 {
@@ -74,8 +21,6 @@ enum class CommandId : int
     jumpifzero,
     invalid,
 };
-
-void save2Db();
 
 CommandId parseStr(string &s)
 {
@@ -123,24 +68,6 @@ string toStr(CommandId id)
     }
 }
 
-void trim(string &s)
-{
-    if (s.empty())
-    {
-        return;
-    }
-    s.erase(0, s.find_first_not_of(" "));
-    s.erase(s.find_last_not_of(" ") + 1);
-}
-
-void cleanLineAbove()
-{
-    // Move up one line
-    cout << "\033[A";
-    // Clear the line
-    cout << "\033[K";
-}
-
 class GameInfo
 {
 public:
@@ -149,9 +76,7 @@ public:
     list<int> expected_out;
     vector<CommandId> available_command;
     int n_playground;
-    bool _done;
-
-    GameInfo() : title(""), in({}), expected_out({}), available_command({}), n_playground(0), _done(false) {}
+    GameInfo() : title(""), in({}), expected_out({}), available_command({}), n_playground(0) {}
 };
 
 class Box
@@ -201,7 +126,6 @@ enum class Result
     error
 };
 
-// 辅助绘画关卡界面的类
 class GameScreen
 {
     const int SCREEN_LEN = 100;
@@ -211,7 +135,7 @@ class GameScreen
     const int SPLIT_SCREEN_COLUMN = 63;
     vector<string> screen;
 
-    // 若invalid为真，则盒子内字符为'X'
+    // if invalid will draw 'X' within the box
     void drawBox(int r, int c, int data, bool invalid = false)
     {
         int fr = r;
@@ -494,7 +418,9 @@ public:
     }
 };
 
-// 关卡类， 用来执行关卡部分的主要逻辑以及操作
+void delay(int ms);
+void cleanLineAbove();
+
 class Game
 {
     void goToPlayGround(int x)
@@ -743,58 +669,22 @@ class Game
         return true;
     }
 
-    bool resultMatched()
-    {
-        if (current_out.size() != expected_out.size())
-            return false;
-        else
-        {
-            auto it1 = current_out.begin();
-            auto it2 = expected_out.begin();
-            while (it1 != current_out.end() && it2 != expected_out.end())
-            {
-                if (*it1 != *it2)
-                    return false;
-                it1++;
-                it2++;
-            }
-        }
-        return true;
-    }
-
 public:
-    // 关卡名字
-    string title;
-    // 是否在本次通关
-    bool passed;
-
-    // 输入端的盒子
     list<Box> in_boxes;
-    // 初始时输入端盒子
     list<Box> ori_in;
-    // 输出端的盒子
     list<Box> out_boxes;
-    // 空地盒子
     vector<Box> playground_boxes;
-    // 指令数组
     vector<string> codes;
-    // 该关卡允许使用的指令数组
     vector<CommandId> available_command;
     GameScreen screen;
-    // 期望输出
     list<int> expected_out;
-    // 当前输出（输出端输出）
     list<int> current_out;
-    // 当前运行指令行数
     int current_line;
-    // 动画延迟
     int step_delay; // ms
-    // 右下方窗口是否显示可使用指令，否则显示当前关卡状态
     bool logAvailableCommand;
-    // 上次尝试的结果
     Result prevResult;
-    // 上次尝试的步数
     int step_used;
+    string title;
 
     Box box_taken;
     int robot_column;
@@ -812,14 +702,11 @@ public:
         this->available_command = available_command;
         robot_column = 3;
         current_line = -1;
-        step_delay = STEP_DELAY;
+        step_delay = 500;
         logAvailableCommand = true;
         prevResult = Result::idle;
         step_used = 0;
-        passed = false;
     }
-
-    // 刷新屏幕
     void updateScreen()
     {
         screen.clear();
@@ -828,13 +715,12 @@ public:
             screen.drawAvailableCommand(available_command);
         else
             screen.drawResultBlock(prevResult, step_used);
+        // system("cls");
         for (int i = 0; i < 5; i++)
         {
             cleanLineAbove();
         }
         cout << "\033[H";
-        cout << "Level Information: " << title << endl
-             << endl;
         screen.print();
         // print ori in
         cout << "Ori In: ";
@@ -853,8 +739,6 @@ public:
         cout << endl;
     }
 
-    // 重置并且运行所有指令
-    // @param animate 是否呈现运行过程动画
     bool runCode(bool animate)
     {
         step_used = 0;
@@ -931,7 +815,6 @@ public:
         if (resultMatched())
         {
             prevResult = Result::success;
-            passed = true;
             return true;
         }
         else
@@ -941,7 +824,25 @@ public:
         }
     }
 
-    // 从file_path文件中加载代码
+    bool resultMatched()
+    {
+        if (current_out.size() != expected_out.size())
+            return false;
+        else
+        {
+            auto it1 = current_out.begin();
+            auto it2 = expected_out.begin();
+            while (it1 != current_out.end() && it2 != expected_out.end())
+            {
+                if (*it1 != *it2)
+                    return false;
+                it1++;
+                it2++;
+            }
+        }
+        return true;
+    }
+
     bool importCode(string file_path)
     {
         ifstream file(file_path);
@@ -969,26 +870,18 @@ public:
         return true;
     }
 
-    // 增加一行代码
     void addCode(string code)
     {
-        trim(code);
         codes.push_back(code);
     }
 
-    // 删除最后一行代码
     void removeCode()
     {
         codes.pop_back();
     }
 };
 
-// 储存所有定义的关卡信息的数组
-vector<GameInfo> levelInfo;
-
-// 带CLI进入关卡页面
-// @return 该关卡是否通关（与之前是否通关无关）
-bool playLevel(string title, vector<int> &in, vector<CommandId> &available_command, int n_playground, list<int> &expected_out, string fname)
+void playGame(string title, vector<int> &in, vector<CommandId> &available_command, int n_playground, list<int> &expected_out, string &fname)
 {
     Game game(title, in, available_command, n_playground, expected_out);
     if (fname.size() > 0)
@@ -999,15 +892,14 @@ bool playLevel(string title, vector<int> &in, vector<CommandId> &available_comma
     {
         game.updateScreen();
         string line;
-        cout << "Enter the command: ( 'r' for run / 'a' for add / 'i' for import / 'q' for quit ) \n> ";
+        cout << "Enter the command: ( run / exit / add / import ) \n> ";
         getline(cin, line);
-        if (line.compare("r") == 0)
+        if (line.compare("run") == 0)
             game.runCode(true);
-        else if (line.compare("q") == 0)
+        else if (line.compare("exit") == 0)
             break;
-        else if (line.compare("a") == 0)
+        else if (line.compare("add") == 0)
         {
-            // 手动上传指令模式
             game.logAvailableCommand = true;
             while (true)
             {
@@ -1034,9 +926,8 @@ bool playLevel(string title, vector<int> &in, vector<CommandId> &available_comma
                 game.addCode(line);
             }
         }
-        else if (line.compare("i") == 0)
+        else if (line.compare("import") == 0)
         {
-            // 从文件加载指令模式
             game.updateScreen();
             cout << "Enter the file path: (q to quit)\n> ";
             string file_path;
@@ -1047,71 +938,49 @@ bool playLevel(string title, vector<int> &in, vector<CommandId> &available_comma
             if (!success)
             {
                 cout << "Cannot import code from file " << file_path << endl;
-                delay(500);
+                delay(800);
             }
         }
     }
-    return game.passed;
 }
 
-// 将每个游戏是否已通过的信息存入db文件中
-void save2Db()
+void playGame(GameInfo &info, string &importFile)
 {
-    ofstream db(dbPath);
-    for (int i = 0; i < levelInfo.size(); i++)
-    {
-        db << levelInfo[i]._done ? 1 : 0;
-        db << "\n";
-    }
-    db.flush();
-    db.close();
+    return playGame(info.title, info.in, info.available_command, info.n_playground, info.expected_out, importFile);
 }
 
-// 从db文件中加载每个关卡的通关信息
-void loadFromDb()
-{
-    ifstream db(dbPath);
-    string line;
-    int i = 0;
-    while (i < levelInfo.size() && getline(db, line))
-    {
-        int n;
-        sscanf(line.c_str(), "%d", &n);
-        levelInfo[i++]._done = n > 0;
-    }
-    db.close();
-}
+GameInfo gameInfo1;
+GameInfo gameInfo2;
+GameInfo gameInfo3;
+GameInfo gameInfo4;
 
-// 初始化各个关卡信息
 void initGameInfo()
 {
-    levelInfo.resize(4);
-    levelInfo[0].title = "level 1 - the basic";
-    levelInfo[0].in = {1, 2};
-    levelInfo[0].expected_out = {1, 2};
-    levelInfo[0].available_command = {CommandId::inbox, CommandId::outbox};
-    levelInfo[0].n_playground = 0;
+    gameInfo1.title = "Level 1";
+    gameInfo1.in = {1, 2};
+    gameInfo1.expected_out = {1, 2};
+    gameInfo1.available_command = {CommandId::inbox, CommandId::outbox};
+    gameInfo1.n_playground = 0;
 
-    levelInfo[1].title = "level 2 - tricky part";
-    levelInfo[1].in = {3, 9, 5, 1, -2, -2, 9, -9};
-    levelInfo[1].expected_out = {-6, 6, 4, -4, 0, 0, 18, -18};
-    levelInfo[1].n_playground = 3;
-    levelInfo[1].available_command = {CommandId::inbox, CommandId::outbox, CommandId::add, CommandId::sub, CommandId::copyto, CommandId::copyfrom, CommandId::jump, CommandId::jumpifzero};
+    gameInfo2.title = "Level 2";
+    gameInfo2.in = {3, 9, 5, 1, -2, -2, 9, -9};
+    gameInfo2.expected_out = {-6, 6, 4, -4, 0, 0, 18, -18};
+    gameInfo2.n_playground = 3;
+    gameInfo2.available_command = {CommandId::inbox, CommandId::outbox, CommandId::add, CommandId::sub, CommandId::copyto, CommandId::copyfrom, CommandId::jump, CommandId::jumpifzero};
 
-    levelInfo[2].title = "level 3 - the twin";
-    levelInfo[2].in = {6, 2, 7, 7, -9, 3, -3, -3};
-    levelInfo[2].expected_out = {7, -3};
-    levelInfo[2].n_playground = 3;
-    levelInfo[2].available_command = {CommandId::inbox, CommandId::outbox, CommandId::add, CommandId::sub, CommandId::copyto, CommandId::copyfrom, CommandId::jump, CommandId::jumpifzero};
+    gameInfo3.title = "Level 3";
+    gameInfo3.in = {6, 2, 7, 7, -9, 3, -3, -3};
+    gameInfo3.expected_out = {7, -3};
+    gameInfo3.n_playground = 3;
+    gameInfo3.available_command = {CommandId::inbox, CommandId::outbox, CommandId::add, CommandId::sub, CommandId::copyto, CommandId::copyfrom, CommandId::jump, CommandId::jumpifzero};
 
-    levelInfo[3].title = "level 4 - fib number";
-    levelInfo[3].in = {1};
-    levelInfo[3].expected_out = {1, 1, 2, 3};
-    levelInfo[3].n_playground = 4;
-    levelInfo[3].available_command = {CommandId::inbox, CommandId::outbox, CommandId::add, CommandId::sub, CommandId::copyto, CommandId::copyfrom, CommandId::jump, CommandId::jumpifzero};
+    gameInfo4.title = "Level 4";
+    gameInfo4.in = {1};
+    gameInfo4.expected_out = {1, 1, 2, 3};
+    gameInfo4.n_playground = 4;
+    gameInfo4.available_command = {CommandId::inbox, CommandId::outbox, CommandId::add, CommandId::sub, CommandId::copyto, CommandId::copyfrom, CommandId::jump, CommandId::jumpifzero};
 }
 
-// 用于测试代码正确性，无CLI和互动
 void simulate(GameInfo &info)
 {
     Game game(info.title, info.in, info.available_command, info.n_playground, info.expected_out);
@@ -1133,86 +1002,102 @@ void simulate(GameInfo &info)
         cout << "Success" << endl;
 }
 
-// 用于测试代码正确性，无CLI和互动
-void testing()
+void cleanLineAbove()
 {
-    int level;
+    // Move up one line
+    cout << "\033[A";
+    // Clear the line
+    cout << "\033[K";
+}
+
+#define ojTest
+
+#ifdef ojTest
+void delay(int ms) {}
+#else
+#include <windows.h>
+void delay(int ms)
+{
+    Sleep(ms);
+}
+
+void hideCursor()
+{
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_CURSOR_INFO cursorInfo;
+    GetConsoleCursorInfo(hConsole, &cursorInfo);
+    cursorInfo.bVisible = FALSE; // Set visibility to false
+    SetConsoleCursorInfo(hConsole, &cursorInfo);
+}
+
+#endif
+
+int main(int argc, char *argv[])
+{
+    initGameInfo();
+    int _d = -1;
+    if (argc > 1)
+        _d = stoi(argv[1]);
+#ifdef ojTest
+
+    ifstream in("in.txt");
+    ofstream out("out.txt");
+    cin.rdbuf(in.rdbuf());
+    cout.rdbuf(out.rdbuf());
+    ofstream debug("debug.txt");
+
     string line;
+    int n_epoch;
     getline(cin, line);
-    sscanf(line.c_str(), "%d", &level);
-    if (level > 0 && level < 4)
-        simulate(levelInfo[level - 1]);
-}
+    sscanf(line.c_str(), "%d", &n_epoch);
 
-// 检查该关卡是否还没抵达
-bool levelIsLocked(int i)
-{
-    return i != 0 && !levelInfo[i - 1]._done;
-}
-
-// 进入游戏的主循环
-void playGame()
-{
-    while (true)
+    for (int i = 0; i < n_epoch; i++)
     {
-        clearTerminal();
-        cout << "\n\n";
-        cout << R"( _   _                               ____                                    )" << endl;
-        cout << R"(| | | |_   _ _ __ ___   __ _ _ __   |  _ \ ___  ___  ___  _   _ _ __ ___ ___ )" << endl;
-        cout << R"(| |_| | | | | '_ ` _ \ / _` | '_ \  | |_) / _ \/ __|/ _ \| | | | '__/ __/ _ \)" << endl;
-        cout << R"(|  _  | |_| | | | | | | (_| | | | | |  _ <  __/\__ \ (_) | |_| | | | (_|  __/)" << endl;
-        cout << R"(|_| |_|\__,_|_| |_|_|_|\__,_|_| |_| |_| \_\___||___/\___/ \__,_|_|  \___\___|)" << endl;
-        cout << R"( _   __            _     _                                                   )" << endl;
-        cout << R"(|  \/  | __ _  ___| |__ (_)_ __   ___                                        )" << endl;
-        cout << R"(| |\/| |/ _` |/ __| '_ \| | '_ \ / _ \                                       )" << endl;
-        cout << R"(| |  | | (_| | (__| | | | | | | |  __/                                       )" << endl;
-        cout << R"(|_|  |_|\__,_|\___|_| |_|_|_| |_|\___|                                       )" << endl;
-        cout << endl;
-
-        cout << "---------------------------------------------------------------------------------" << endl;
-
-        cout << endl;
-        cout << "Level: " << endl
-             << endl;
-
-        int titleLen = 35;
-        for (int i = 0; i < levelInfo.size(); i++)
+        if (i == (_d - 1))
         {
-            auto &info = levelInfo[i];
-            cout << i + 1 << ". " << info.title;
-            int remain = titleLen - info.title.size();
-            int n_spaces = remain + 15;
-            string spaces;
-            for (int j = 0; j < n_spaces; j++)
-                spaces += ' ';
-            cout << spaces;
-            if (i != 0 && !levelInfo[i - 1]._done)
-                cout << "locked";
-            else if (info._done)
-                cout << "passed";
-            else
-                cout << "**";
-            cout << endl
-                 << endl;
-        }
-
-        int level;
-        cout << "\nSelect your level (q for quit game): ";
-        string line;
-        getline(cin, line);
-        if (line.compare("q") == 0)
-            return;
-        int c = sscanf(line.c_str(), "%d", &level);
-        if (c == 1 && level <= levelInfo.size() && level > 0 && !levelIsLocked(level - 1))
-        {
-            clearTerminal();
-            GameInfo &info = levelInfo[level - 1];
-            bool passed = playLevel(info.title, info.in, info.available_command, info.n_playground, info.expected_out, "");
-            if (passed)
+            getline(cin, line);
+            debug << line << endl;
+            getline(cin, line);
+            debug << line << endl;
+            int n_op = 0;
+            sscanf(line.c_str(), "%d", &n_op);
+            for (int i = 0; i < n_op; i++)
             {
-                info._done = true;
-                save2Db();
+                getline(cin, line);
+                debug << line << endl;
             }
+            return 0;
         }
+        int level;
+        getline(cin, line);
+        sscanf(line.c_str(), "%d", &level);
+        GameInfo *game;
+        switch (level)
+        {
+        case 1:
+            game = &gameInfo1;
+            break;
+        case 2:
+            game = &gameInfo2;
+            break;
+        case 3:
+            game = &gameInfo3;
+            break;
+        default:
+            return 0;
+            // game = &gameInfo4;
+            // break;
+        }
+        simulate(*game);
     }
+    // system("pause");
+
+#else
+
+    string f;
+    hideCursor();
+    playGame(gameInfo1, f);
+
+#endif
+    return 0;
 }
