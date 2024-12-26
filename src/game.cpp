@@ -14,6 +14,8 @@ void loadFromDb();
 
 // 若测试代码逻辑正确性，请定义ojTest
 // #define ojTest
+// 若当前OS为windows，请定义isWindows
+#define isWindows
 
 const int STEP_DELAY = 500;     // 游戏动画单步延迟时长（ms）
 const string dbPath = "db.txt"; // 数据库文件地址
@@ -34,33 +36,51 @@ int main()
 
 #ifdef ojTest
 void delay(int ms) {}
-void hideCursor() {}
-void clearTerminal() {}
 #else
 // 在window中如下实现
-// 在其他OS下或许需要更改实现
+#ifdef isWindows
 #include <windows.h>
 void delay(int ms)
 {
     Sleep(ms);
 }
+#else
+// 在linux, macOs中如下实现
+#include <unistd.h>
+void delay(int ms)
+{
+    usleep(ms * 1000);
+}
+#endif
+#endif
 
-// 非必要，为了美观性
+void save2Db();
+
+void trim(string &s)
+{
+    if (s.empty())
+    {
+        return;
+    }
+    s.erase(0, s.find_first_not_of(" "));
+    s.erase(s.find_last_not_of(" ") + 1);
+}
+
 void hideCursor()
 {
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    CONSOLE_CURSOR_INFO cursorInfo;
-    GetConsoleCursorInfo(hConsole, &cursorInfo);
-    cursorInfo.bVisible = FALSE; // Set visibility to false
-    SetConsoleCursorInfo(hConsole, &cursorInfo);
+    cout << "\033[?25l" << std::flush;
 }
 
 void clearTerminal()
 {
-    system("cls");
+    cout << "\033[2J\033[H" << std::flush;
 }
 
-#endif
+void cleanLineAbove()
+{
+    cout << "\033[A";
+    cout << "\033[K";
+}
 
 enum class CommandId : int
 {
@@ -74,8 +94,6 @@ enum class CommandId : int
     jumpifzero,
     invalid,
 };
-
-void save2Db();
 
 CommandId parseStr(string &s)
 {
@@ -121,24 +139,6 @@ string toStr(CommandId id)
     default:
         return "";
     }
-}
-
-void trim(string &s)
-{
-    if (s.empty())
-    {
-        return;
-    }
-    s.erase(0, s.find_first_not_of(" "));
-    s.erase(s.find_last_not_of(" ") + 1);
-}
-
-void cleanLineAbove()
-{
-    // Move up one line
-    cout << "\033[A";
-    // Clear the line
-    cout << "\033[K";
 }
 
 class GameInfo
@@ -1013,7 +1013,6 @@ bool playLevel(string title, vector<int> &in, vector<CommandId> &available_comma
             {
                 game.updateScreen();
                 cout << "Add Code Mode: (input \'q\' if done, \'d\' for delete, \'c\' for clear)\n> ";
-                char temp[100];
                 int arg = 0;
                 getline(cin, line);
                 if (line.compare("q") == 0)
@@ -1156,7 +1155,6 @@ void playGame()
     while (true)
     {
         clearTerminal();
-        cout << "\n\n";
         cout << R"( _   _                               ____                                    )" << endl;
         cout << R"(| | | |_   _ _ __ ___   __ _ _ __   |  _ \ ___  ___  ___  _   _ _ __ ___ ___ )" << endl;
         cout << R"(| |_| | | | | '_ ` _ \ / _` | '_ \  | |_) / _ \/ __|/ _ \| | | | '__/ __/ _ \)" << endl;
